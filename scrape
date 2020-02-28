@@ -312,8 +312,20 @@ if __name__ == "__main__":
     )
 
     ex_args2 = argp.add_mutually_exclusive_group()
-    ex_args2.add_argument("--local-only", default=False, action="store_true")
-    ex_args2.add_argument("--online-only", default=False, action="store_true")
+    ex_args2.add_argument(
+        "--local-only",
+        default=False,
+        action="store_true",
+        help="Rebuild gamelist.xml and media directory only.",
+    )
+    ex_args2.add_argument(
+        "--online-only",
+        default=False,
+        action="store_true",
+        help="""Refresh Skyscraper cache from online sources only.
+            Does not rebuild gamelist.xml or media directory.
+            """,
+    )
 
     args = argp.parse_args()
 
@@ -344,9 +356,9 @@ if __name__ == "__main__":
     _now = _now.strftime("%Y%m%d-%H%M%S")
 
     # Open log file for writing.
-    with pathlib.Path(_log_path / "{}-{}.log".format(pathlib.Path(__file__).stem, _now)).open(
-        "w"
-    ) as f:
+    with pathlib.Path(
+        _log_path / "{}-{}.log".format(pathlib.Path(__file__).stem, _now)
+    ).open("w") as f:
 
         # Cleanup from a previous version of the script.
         cleanup(_full_rom_path)
@@ -364,9 +376,9 @@ if __name__ == "__main__":
                 videos=_videos,
             )
 
-        # Hard link duplicate files in Skyscraper cache to save space.
-        print("Cleaning up local cache...")
-        linkdupes(stdout=f)
+            # Hard link duplicate files in Skyscraper cache to save space.
+            print("Cleaning up local cache...")
+            linkdupes(stdout=f)
 
         if not args.online_only:
             # Rebuild artwork in the ROM directory from the local cache.

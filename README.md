@@ -43,3 +43,10 @@ scrape <system>
 Then just sit back and relax. scrape will launch 8 copies of Skyscraper, each pulling from a different online source. Once all online sources have been polled, it will then clean up the Skyscraper cache before rebuilding the gamelist.xml file and media folder from the local files.
 
 ### Advanced Options
+scrape has command line arguments. To see a list of them and their instructions, type:
+```
+scrape -h
+```
+
+### Log Files
+Every time scrape is run, it generates a log file in /dev/shm. This file will contain the output from the Skyscraper threads and can be useful for diagnosing problems.
