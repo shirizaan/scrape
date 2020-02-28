@@ -1,0 +1,380 @@
+#!/usr/bin/env python3.8
+
+"""
+This is a front end for Skyscraper by Lars Muldjord.
+
+Skyscraper can be obtained from https://github.com/muldjord/skyscraper
+or by installing it through the RetroPie-Setup script which can be found
+at https://github.com/RetroPie/RetroPie-Setup.
+
+"""
+
+import shutil
+import argparse
+import subprocess
+import pathlib
+
+from datetime import datetime
+from distutils.spawn import find_executable
+from concurrent.futures import ThreadPoolExecutor as Pool
+
+_version = 0.16
+
+_cache_path = pathlib.Path(pathlib.Path.home() / ".skyscraper" / "cache")
+_rom_path = pathlib.Path(pathlib.Path.home() / "RetroPie" / "roms")
+_log_path = pathlib.Path("/dev/shm")
+_max_workers = 8
+
+_required_executables = ["jdupes", "Skyscraper"]
+
+_scrapers = [
+    "arcadedb",
+    "igdb",
+    # "mobygames", What pile of garbage.
+    "openretro",
+    "screenscraper",
+    "thegamesdb",
+    "worldofspectrum",
+]
+
+_systems = [
+    "3do",
+    "3ds",
+    "amiga",
+    "amstradcpc",
+    "apple2",
+    "arcade",
+    "arcadia",
+    "astrocde",
+    "atari800",
+    "atari2600",
+    "atari5200",
+    "atari7800",
+    "atarijaguar",
+    "atarilynx",
+    "atarist",
+    "c16",
+    "c64",
+    "c128",
+    "coco",
+    "coleco",
+    "daphne",
+    "dragon32",
+    "dreamcast",
+    "fba",
+    "fds",
+    "gameandwatch",
+    "gamegear",
+    "gb",
+    "gba",
+    "gbc",
+    "gc",
+    "genesis",
+    "intellivision",
+    "mame-advmame",
+    "mame-libretro",
+    "mame-mame4all",
+    "mastersystem",
+    "megacd",
+    "megadrive",
+    "msx",
+    "n64",
+    "nds",
+    "neogeo",
+    "neocd",
+    "nes",
+    "ngp",
+    "ngpc",
+    "oric",
+    "pc",
+    "pc88",
+    "pc98",
+    "pcfx",
+    "pcengine",
+    "pce-cd",
+    "pokemini",
+    "ports",
+    "ps2",
+    "psp",
+    "psx",
+    "saturn",
+    "scummvm",
+    "sega32x",
+    "segacd",
+    "sg-1000",
+    "snes",
+    "steam",
+    "ti99",
+    "trs-80",
+    "vectrex",
+    "vic20",
+    "videopac",
+    "virtualboy",
+    "wii",
+    "wonderswan",
+    "wonderswancolor",
+    "x68000",
+    "x1",
+    "zmachine",
+    "zx81",
+    "zxspectrum",
+]
+
+_subdirs = ["wheels", "screenshots", "marquees", "covers", "videos"]
+
+
+def reqs_check():
+    for f in _required_executables:
+        if find_executable(f) == None:
+            print("{} is not installed.".format(f))
+            exit()
+
+
+def cleanup(system, /, *, path=_rom_path):
+    for d in _subdirs:
+        _fullpath = pathlib.Path(path / system / d)
+
+        if _fullpath.is_dir():
+            print("Deleting {}...".format(_fullpath))
+            shutil.rmtree(_fullpath)
+
+
+def _get_skyscraper_command(
+    system,
+    /,
+    *,
+    scraper="",
+    videos=False,
+    refresh=False,
+    start_at="",
+    path="",
+    extensions=None,
+    unattend=True,
+    unattendskip=False,
+    relativepaths=True,
+    hints=False,
+    debug=False,
+):
+    _mediapath = pathlib.Path(path / "media")
+
+    _command_parts = []
+
+    _command_parts.append(find_executable("Skyscraper"))
+    _command_parts.append("-p {}".format(system))
+
+    if scraper:
+        _command_parts.append("-s {}".format(scraper))
+
+    if videos:
+        _command_parts.append("--videos")
+
+    if refresh:
+        _command_parts.append("--refresh")
+
+    if unattend:
+        _command_parts.append("--unattend")
+
+    if unattendskip:
+        _command_parts.append("--unattendskip")
+
+    if relativepaths:
+        _command_parts.append("--relative")
+
+    if not hints:
+        _command_parts.append("--nohints")
+
+    if debug:
+        _verbosity = 3
+    else:
+        _verbosity = 0
+
+    _command_parts.append("--verbosity {}".format(_verbosity))
+
+    if extensions is not None:
+        _command_parts.append('--addext "{}"'.format(" ".join(extensions)))
+
+    if path:
+        _command_parts.append('-i "{}"'.format(path))
+        _command_parts.append('-g "{}"'.format(path))
+        _command_parts.append('-o "{}"'.format(_mediapath))
+
+    if start_at:
+        _command_parts.append('--startat "{}"'.format(start_at))
+
+    _command = " ".join(_command_parts)
+
+    return _command
+
+
+def thread_callback(future):
+    print("{}".format(future.message_finished))
+    pass
+
+
+def _pool_command(pool, command, /, *, message_finished="Finished.", stdout=None):
+
+    future = pool.submit(
+        subprocess.run, command, stdout=stdout, stderr=stdout, shell=True
+    )
+    future.message_finished = message_finished
+    future.add_done_callback(thread_callback)
+
+
+def linkdupes(*, stdout=None, debug=False):
+    _command = "{0} -r -L {1}".format(find_executable("jdupes"), _cache_path)
+
+    if debug:
+        print(_command)
+
+    p = Pool(max_workers=_max_workers)
+
+    _pool_command(p, _command, stdout=stdout)
+
+    p.shutdown(wait=True)
+
+
+def scrape(
+    system,
+    /,
+    *,
+    scrapers=["localdb"],
+    videos=True,
+    refresh=True,
+    path="",
+    stdout=None,
+    extensions=None,
+    debug=False,
+):
+    p = Pool(max_workers=_max_workers)
+
+    for s in scrapers:
+        if s == "localdb":
+            _message = "Finished."
+        else:
+            _message = "Finished scraping with {}.".format(s)
+
+        _command = _get_skyscraper_command(
+            system,
+            scraper=s,
+            videos=videos,
+            refresh=refresh,
+            path=path,
+            extensions=extensions,
+            debug=debug,
+        )
+
+        if debug:
+            print(_command)
+
+        _pool_command(p, _command, message_finished=_message, stdout=stdout)
+
+    p.shutdown(wait=True)
+
+
+if __name__ == "__main__":
+
+    print("{} v{}".format(pathlib.Path(__file__).name, _version))
+
+    # Check for required executables before proceeding.
+    reqs_check()
+
+    # Setup and parse arguments.
+    argp = argparse.ArgumentParser()
+
+    argp.add_argument(
+        "system", help="The video game console to scrape.", choices=_systems
+    )
+
+    argp.add_argument(
+        "--debug",
+        default=False,
+        action="store_true",
+        help="Enables the display of additional debug messages.",
+    )
+    argp.add_argument(
+        "--videos",
+        default=False,
+        action="store_true",
+        help="Enables the scraping of videos",
+    )
+
+    ex_args = argp.add_mutually_exclusive_group()
+    ex_args.add_argument(
+        "-s",
+        metavar="PATH",
+        help="""The path where individual system directories are stored. 
+                The system name will be appended automatically.""",
+    )
+    ex_args.add_argument(
+        "-p",
+        metavar="PATH",
+        help="The direct path to the rom files. The system name will NOT be appended.",
+    )
+
+    ex_args2 = argp.add_mutually_exclusive_group()
+    ex_args2.add_argument("--local-only", default=False, action="store_true")
+    ex_args2.add_argument("--online-only", default=False, action="store_true")
+
+    args = argp.parse_args()
+
+    if args.system == "neocd":
+        _system = "neogeo"
+        _system_path = "neocd"
+        _system_exts = ["*.bin", "*.iso"]
+    elif args.system == "pce-cd":
+        _system = "pcengine"
+        _system_path = "pce-cd"
+        _system_exts = ["*.bin", "*.iso", "*.chd"]
+    else:
+        _system = args.system
+        _system_path = args.system
+        _system_exts = None
+
+    if args.s:
+        _full_rom_path = pathlib.Path(args.s / _system_path)
+    elif args.p:
+        _full_rom_path = pathlib.Path(args.p)
+    else:
+        _full_rom_path = pathlib.Path(_rom_path / _system_path)
+
+    _debug = args.debug
+    _videos = args.videos
+
+    _now = datetime.now()
+    _now = _now.strftime("%Y%m%d-%H%M%S")
+
+    # Open log file for writing.
+    with pathlib.Path(_log_path / "{}-{}.log".format(pathlib.Path(__file__).stem, _now)).open(
+        "w"
+    ) as f:
+
+        # Cleanup from a previous version of the script.
+        cleanup(_full_rom_path)
+
+        if not args.local_only:
+            # Pull assets from all online scraping sources.
+            print("Refreshing local media cache from online sources...")
+            scrape(
+                _system,
+                scrapers=_scrapers,
+                stdout=f,
+                path=_full_rom_path,
+                extensions=_system_exts,
+                debug=_debug,
+                videos=_videos,
+            )
+
+        # Hard link duplicate files in Skyscraper cache to save space.
+        print("Cleaning up local cache...")
+        linkdupes(stdout=f)
+
+        if not args.online_only:
+            # Rebuild artwork in the ROM directory from the local cache.
+            print("Rebuilding {} media directory from local cache...".format(_system))
+            scrape(
+                _system,
+                stdout=f,
+                path=_full_rom_path,
+                extensions=_system_exts,
+                videos=_videos,
+            )
